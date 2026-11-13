@@ -1,10 +1,64 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+const jsonHeaders = { ...corsHeaders, 'Content-Type': 'application/json' };
+
+/**
+ * Fail closed unless the caller presents a verified user JWT.
+ * Platform verify_jwt still accepts a legacy anon key (itself a JWT), so this
+ * extra getUser() check is required to reject anonymous callers.
+ */
+async function requireSignedInUser(req: Request): Promise<Response | null> {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const supabaseKey =
+    Deno.env.get('SUPABASE_ANON_KEY') ??
+    Deno.env.get('SUPABASE_PUBLISHABLE_KEY');
+
+  if (!supabaseUrl || !supabaseKey) {
+    console.error('SUPABASE_URL or SUPABASE_ANON_KEY / SUPABASE_PUBLISHABLE_KEY is not configured');
+    return new Response(JSON.stringify({ error: 'Server misconfigured' }), {
+      status: 500,
+      headers: jsonHeaders,
+    });
+  }
+
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: jsonHeaders,
+    });
+  }
+
+  const token = authHeader.slice('Bearer '.length).trim();
+  if (!token) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: jsonHeaders,
+    });
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseKey, {
+    global: { headers: { Authorization: authHeader } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: jsonHeaders,
+    });
+  }
+
+  return null;
+}
 
 interface ResearchConfig {
   researchGuidance?: {
@@ -60,6 +114,11 @@ interface ResearchDataItem {
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
+  }
+
+  const unauthorized = await requireSignedInUser(req);
+  if (unauthorized) {
+    return unauthorized;
   }
 
   try {

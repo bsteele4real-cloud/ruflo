@@ -1,7 +1,10 @@
 project_id = "eqzmqxtngbulzhimrymr"
 
+# JWT verification is required. Deploy with:
+#   supabase functions deploy research-step
+# Do not pass --no-verify-jwt; that flag would reopen unauthenticated access.
 [functions.research-step]
-verify_jwt = false
+verify_jwt = true
 
 [functions.research-api]
 verify_jwt = true

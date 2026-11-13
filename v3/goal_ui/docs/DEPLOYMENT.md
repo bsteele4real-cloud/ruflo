@@ -198,3 +198,25 @@ To force users to get new version:
 - Change widget version in code
 - Or rename files (e.g., `widget.v2.js`)
 - Or use cache busting query params
+
+## Edge Functions (research-step)
+
+`research-step` requires a signed-in user's JWT. Platform JWT verification is
+on in `supabase/config.toml` (`verify_jwt = true`), and the function also calls
+`auth.getUser()` so a legacy anon key is not treated as a user.
+
+Deploy from `v3/goal_ui` **without** `--no-verify-jwt` (that flag would turn
+verification off and reopen unauthenticated access):
+
+```bash
+supabase functions deploy research-step
+```
+
+The CLI reads `verify_jwt` from `supabase/config.toml`. After deploy, an
+unauthenticated `POST` to `/functions/v1/research-step` should return **401**,
+not 200 or 500.
+
+This change will break the current unauthenticated widget until you add
+Supabase Auth sign-in. The UI now refuses to call `research-step` when there
+is no session.
+
