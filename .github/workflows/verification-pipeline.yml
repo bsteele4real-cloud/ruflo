@@ -17,6 +17,9 @@ on:
           - quick
           - security-only
 
+permissions:
+  contents: read
+
 env:
   NODE_VERSION: '20'
   CACHE_VERSION: v1
