@@ -1,12 +1,14 @@
 name: 🔄 Automated Rollback Manager
 
+# Destructive rollback is manual only. Automatic triggers (workflow_run, push
+# to main) were removed: those paths performed `git reset --hard` and, in
+# emergency mode, `git push --force-with-lease` against an Environment
+# (`rollback-approval`) that does not exist on this fork, so required-reviewer
+# protection was ineffective. Prefer revert-style commits (new commit with the
+# target tree, parent = current HEAD) and a regular fast-forward push.
+# The owner still needs to create the `rollback-approval` Environment with
+# required reviewers (a repo setting — not changed by this commit).
 on:
-  workflow_run:
-    workflows: ["🔍 Verification Pipeline", "🎯 Truth Scoring Pipeline", "🔗 Cross-Agent Integration Tests"]
-    types: [completed]
-    branches: [main, develop]
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       rollback_target:
@@ -17,7 +19,7 @@ on:
         required: true
         default: 'Manual rollback requested'
       emergency_mode:
-        description: 'Emergency rollback mode (skip confirmations)'
+        description: 'Legacy input; no longer skips Environment approval or enables force-push'
         required: false
         default: false
         type: boolean
@@ -32,6 +34,9 @@ on:
           - infrastructure
           - full
 
+permissions:
+  contents: read
+
 env:
   NODE_VERSION: '20'
   ROLLBACK_RETENTION_DAYS: 90
@@ -43,7 +48,10 @@ jobs:
   failure-detection:
     name: 🚨 Failure Detection
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_run' || github.event_name == 'push'
+    # Always run so `needs: failure-detection` works on workflow_dispatch.
+    # This job no longer flags an automatic rollback; it only mints a session id
+    # and records that rollback is manual. The workflow_run branch below is
+    # intentionally a no-op (auto triggers were removed).
     outputs:
       rollback-required: ${{ steps.detect.outputs.rollback-required }}
       failure-type: ${{ steps.detect.outputs.failure-type }}
@@ -74,34 +82,12 @@ jobs:
           FAILURE_SEVERITY="low"
           ROLLBACK_TARGET=""
           
-          # Check workflow run results if triggered by workflow_run
-          if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            WORKFLOW_CONCLUSION="${{ github.event.workflow_run.conclusion }}"
-            WORKFLOW_NAME="${{ github.event.workflow_run.name }}"
-            
-            echo "Workflow: $WORKFLOW_NAME"
-            echo "Conclusion: $WORKFLOW_CONCLUSION"
-            
-            if [ "$WORKFLOW_CONCLUSION" = "failure" ]; then
-              ROLLBACK_REQUIRED="true"
-              FAILURE_TYPE="ci_failure"
-              
-              # Determine severity based on workflow type
-              case "$WORKFLOW_NAME" in
-                *"Verification Pipeline"*)
-                  FAILURE_SEVERITY="high"
-                  ;;
-                *"Truth Scoring"*)
-                  FAILURE_SEVERITY="medium"
-                  ;;
-                *"Integration Tests"*)
-                  FAILURE_SEVERITY="high"
-                  ;;
-                *)
-                  FAILURE_SEVERITY="medium"
-                  ;;
-              esac
-            fi
+          # Automatic rollback on workflow_run / push was removed (see the
+          # comment on `on:`). Manual workflow_dispatch only: leave
+          # ROLLBACK_REQUIRED=false so execute-rollback is driven by the
+          # dispatch inputs and pre-rollback-validation, never by a CI failure.
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "Ignoring non-dispatch event ${{ github.event_name }}; automatic rollback is disabled."
           fi
           
           # Check for recent commit history to find safe rollback target
@@ -282,7 +268,9 @@ jobs:
     name: 🔄 Execute Rollback
     runs-on: ubuntu-latest
     needs: [failure-detection, pre-rollback-validation]
-    if: needs.pre-rollback-validation.outputs.validation-passed == 'true' && (needs.failure-detection.outputs.failure-severity == 'high' || github.event.inputs.emergency_mode == 'true' || github.event_name == 'workflow_dispatch')
+    if: needs.pre-rollback-validation.outputs.validation-passed == 'true' && github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
     environment: 
       name: rollback-approval
     outputs:
@@ -325,13 +313,28 @@ jobs:
           echo "Reason: $ROLLBACK_REASON"
           
           if [ -n "$ROLLBACK_TARGET" ]; then
-            # Create rollback commit
-            echo "Creating rollback commit..."
-            
-            # Reset to target commit but keep it as a new commit
-            git reset --hard "$ROLLBACK_TARGET"
-            
-            # Create a revert commit with metadata
+            echo "Creating rollback commit (target tree, parent = current HEAD; no history rewrite)..."
+
+            if ! git cat-file -e "$ROLLBACK_TARGET^{commit}" 2>/dev/null; then
+              echo "❌ Rollback target $ROLLBACK_TARGET does not exist"
+            else
+              TREE=$(git rev-parse "$ROLLBACK_TARGET^{tree}")
+              # New commit whose tree is the target and whose parent is current
+              # HEAD, so a later push is a fast-forward. This is not a rewrite.
+              NEW=$(git commit-tree "$TREE" -p HEAD -m "rollback: restore tree of $ROLLBACK_TARGET
+
+          Reason: $ROLLBACK_REASON
+          Session: ${{ needs.failure-detection.outputs.rollback-session-id || 'manual' }}
+          Scope: ${{ github.event.inputs.rollback_scope || 'application' }}
+
+          This commit restores the tree of the named target without rewriting history.
+
+          Co-Authored-By: Rollback Manager <noreply@github.com>")
+              # Move HEAD to the new child. Safe: $NEW is a descendant of the
+              # previous HEAD (unlike `git reset --hard` to an ancestor).
+              git reset --hard "$NEW"
+
+            # Record rollback metadata as a second (also fast-forward) commit
             cat > ROLLBACK_INFO.md << EOF
           # Rollback Information
           
@@ -367,6 +370,7 @@ jobs:
             ROLLBACK_EXECUTED="true"
             
             echo "✅ Rollback commit created: $ROLLBACK_COMMIT"
+            fi
           else
             echo "❌ No rollback target specified"
           fi
@@ -378,14 +382,11 @@ jobs:
         if: steps.rollback.outputs.rollback-executed == 'true'
         run: |
           echo "📤 Pushing rollback commit..."
-          
-          # Force push the rollback (use with caution)
-          if [ "${{ github.event.inputs.emergency_mode }}" = "true" ]; then
-            git push origin HEAD:${{ github.ref_name }} --force-with-lease
-          else
-            git push origin HEAD:${{ github.ref_name }}
-          fi
-          
+
+          # Fast-forward only. Never force-push from this workflow, including
+          # emergency_mode (that input no longer changes push behavior).
+          git push origin HEAD:${{ github.ref_name }}
+
           echo "✅ Rollback pushed successfully"
 
       - name: Create rollback tag
