@@ -29,6 +29,9 @@ on:
         required: false
         default: '10'
 
+permissions:
+  contents: read
+
 env:
   NODE_VERSION: '20'
   MAX_PARALLEL_AGENTS: 8
@@ -696,6 +699,10 @@ jobs:
       test-performance-integration
     ]
     if: always()
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
