@@ -9,30 +9,30 @@
 
 # CI workflow files — a malicious workflow change can compromise everything
 # that runs in CI. Always require explicit review.
-/.github/workflows/                @ruvnet
-/.github/CODEOWNERS                @ruvnet
-/.github/supply-chain/             @ruvnet
-/.github/dependabot.yml            @ruvnet
+/.github/workflows/                @ruvnet @bsteele4real-cloud
+/.github/CODEOWNERS                @ruvnet @bsteele4real-cloud
+/.github/supply-chain/             @ruvnet @bsteele4real-cloud
+/.github/dependabot.yml            @ruvnet @bsteele4real-cloud
 
 # Lockfiles — silent dep substitution via lockfile editing is a known supply-
 # chain attack vector. Maintainer review required.
-/package-lock.json                 @ruvnet
-/v3/pnpm-lock.yaml                 @ruvnet
-**/package-lock.json               @ruvnet
-**/pnpm-lock.yaml                  @ruvnet
+/package-lock.json                 @ruvnet @bsteele4real-cloud
+/v3/pnpm-lock.yaml                 @ruvnet @bsteele4real-cloud
+**/package-lock.json               @ruvnet @bsteele4real-cloud
+**/pnpm-lock.yaml                  @ruvnet @bsteele4real-cloud
 
 # Plugin manifests — listing in the marketplace, publishing identity.
-**/.claude-plugin/plugin.json      @ruvnet
+**/.claude-plugin/plugin.json      @ruvnet @bsteele4real-cloud
 
 # Witness manifests + provenance — the ADR-103 root of trust.
-/verification/                     @ruvnet
-/v3/docs/adr/ADR-103-witness-temporal-history.md @ruvnet
+/verification/                     @ruvnet @bsteele4real-cloud
+/v3/docs/adr/ADR-103-witness-temporal-history.md @ruvnet @bsteele4real-cloud
 
 # Supply chain scripts themselves — the auditor's audit.
-/scripts/audit-supply-chain.mjs    @ruvnet
-/scripts/audit-package-dep-overlap.mjs @ruvnet
-/scripts/audit-plugin-packages.mjs @ruvnet
-/scripts/audit-hook-commands.mjs   @ruvnet
+/scripts/audit-supply-chain.mjs    @ruvnet @bsteele4real-cloud
+/scripts/audit-package-dep-overlap.mjs @ruvnet @bsteele4real-cloud
+/scripts/audit-plugin-packages.mjs @ruvnet @bsteele4real-cloud
+/scripts/audit-hook-commands.mjs   @ruvnet @bsteele4real-cloud
 
 # Default fallback — every other PR gets standard review.
-*                                  @ruvnet
+*                                  @ruvnet @bsteele4real-cloud
