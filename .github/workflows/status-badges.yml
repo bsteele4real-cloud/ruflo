@@ -9,11 +9,16 @@ on:
   schedule:
     - cron: '0 6 * * *'  # Daily at 6 AM UTC
 
+permissions:
+  contents: read
+
 jobs:
   update-badges:
     name: 📊 Update Status Badges
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

@@ -255,6 +255,9 @@ on:
       - 'scripts/smoke-wizard-init-regression.mjs'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
   NODE_VERSION: '20'
   PNPM_VERSION: '8'
@@ -2081,6 +2084,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build, smoke-install-no-bsqlite, plugin-hooks-smoke, witness-verify]
     if: github.ref == 'refs/heads/v3' && github.event_name == 'push'
+    # GITHUB_TOKEN is contents: read from the workflow default. NPM_TOKEN is a
+    # repo secret (not scoped by this block). Binding publish to a protected
+    # Environment is an owner settings change and is not done here.
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout code
